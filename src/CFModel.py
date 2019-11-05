@@ -104,9 +104,7 @@ class CFModel(object):
             
             # Train and append results.
             for i in range(num_iterations + 1):
-                for step in 
                 _, results = self._session.run((train_op, metrics))
-                _ = self._session.run((train_op))
                 if (i % 10 == 0) or i == num_iterations:
                     print("\r iteration %d: " % i + ", ".join(
                     ["%s=%f" % (k, v) for r in results for k, v in r.items()]),
