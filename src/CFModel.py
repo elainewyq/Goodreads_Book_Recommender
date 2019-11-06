@@ -3,11 +3,6 @@ import json
 import re
 import os
 import sys
-import gzip
-import json
-import re
-import os
-import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -16,7 +11,6 @@ from IPython import display
 import tensorflow as tf
 import altair as alt
 import collections
-from sklearn.model_selection import train_test_split
 
 # sparse representation of the rating matrix
 def build_rating_sparse_tensor(rating_df, users_num, books_num):
@@ -50,6 +44,10 @@ def sparse_mean_square_error(sparse_ratings, user_embeddings, book_embeddings):
     loss = tf.losses.mean_squared_error(sparse_ratings.values, predictions)
     return loss
 
+def gravity(U, V):
+  """Creates a gravity loss given two embedding matrices."""
+  return 1. / (U.shape[0].value*V.shape[0].value) * tf.reduce_sum(
+      tf.matmul(U, U, transpose_a=True) * tf.matmul(V, V, transpose_a=True))
 
 class CFModel(object):
     """Simple class that represents a collaborative filtering model"""
@@ -61,19 +59,35 @@ class CFModel(object):
     metrics: optional list of dictionaries of Tensors. The metrics in each
     dictionary will be plotted in a separate figure during training.
     """
-    def __init__(self, embedding_vars, loss, metrics=None):
+    def __init__(self, embedding_vars, loss, metrics=None,
+                learning_rate=1.0, 
+                optimizer=tf.compat.v1.train.AdamOptimizer):
         self._embedding_vars = embedding_vars
         self._loss = loss
         self._metrics = metrics
         self._embeddings = {k: None for k in embedding_vars}
-        self._session = None
+        self._train_init(learning_rate, optimizer)
 
     @property
     def embeddings(self):
         """The embeddings dictionary."""
         return self._embeddings
 
-    def train(self, num_iterations=100, learning_rate=1.0, plot_results=True,optimizer=tf.train.GradientDescentOptimizer):
+    def _train_init(self, learning_rate, optimizer):
+        with self._loss.graph.as_default():
+            self._opt = optimizer(learning_rate)
+            self._train_op = self._opt.minimize(self._loss)
+            local_init_op = tf.group(
+            tf.variables_initializer(self._opt.variables()),
+            tf.local_variables_initializer())
+            self._session = tf.Session()
+            with self._session.as_default():
+                self._session.run(tf.global_variables_initializer())
+                self._session.run(tf.tables_initializer())
+                local_init_op.run()
+                tf.train.start_queue_runners()
+
+    def train(self, num_iterations=100, plot_results=True):
         """
         Trains the model.
         Args:
@@ -83,29 +97,17 @@ class CFModel(object):
         optimizer: the optimizer to use. Default to GradientDescentOptimizer.
         Returns: The metrics dictionary evaluated at the last iteration.
         """
-        with self._loss.graph.as_default():
-            opt = optimizer(learning_rate)
-            train_op = opt.minimize(self._loss)
-            local_init_op = tf.group(
-            tf.variables_initializer(opt.variables()),
-            tf.local_variables_initializer())
-            if self._session is None:
-                self._session = tf.Session()
-                with self._session.as_default():
-                    self._session.run(tf.global_variables_initializer())
-                    self._session.run(tf.tables_initializer())
-                    tf.train.start_queue_runners()
-
-        with self._session.as_default():
-            local_init_op.run()
+        
+        with self._loss.graph.as_default(), self._session.as_default():
+            
             iterations = []
             metrics = self._metrics or ({},)
             metrics_vals = [collections.defaultdict(list) for _ in self._metrics]
             
             # Train and append results.
             for i in range(num_iterations + 1):
-                _, results = self._session.run((train_op, metrics))
-                if (i % 10 == 0) or i == num_iterations:
+                _, results = self._session.run((self._train_op, metrics))
+                if (i % 1 == 0) or i == num_iterations:
                     print("\r iteration %d: " % i + ", ".join(
                     ["%s=%f" % (k, v) for r in results for k, v in r.items()]),
                     end='')
@@ -118,7 +120,7 @@ class CFModel(object):
                 self._embeddings[k] = v.eval()
 
             if plot_results:
-            # Plot the metrics.
+                # Plot the metrics.
                 num_subplots = len(metrics)+1
                 fig = plt.figure()
                 fig.set_size_inches(num_subplots*10, 8)
@@ -131,6 +133,7 @@ class CFModel(object):
                     ax.set_title('train/test error over num of iterations')
                     ax.legend()
         return results
+
 # Utility to split the data into training and test sets.
 def split_dataframe(df, holdout_fraction=0.1):
     """Splits a DataFrame into training and test sets.
@@ -141,13 +144,16 @@ def split_dataframe(df, holdout_fraction=0.1):
         train: dataframe for training
         test: dataframe for testing
     """
-    df.sort_values('timestamp', inplace=True)
+    # test = df.sample(frac=holdout_fraction, replace=False) 
+    # train = df[~df.index.isin(test.index)]
+    # return train, test
+    # df.sort_values('timestamp', inplace=True)
     sample = int(round(len(df)*holdout_fraction,0))
     test = df[-sample:]
     train = df[~df.index.isin(test.index)]
     return train, test
 
-def build_model(ratings, embedding_dim=3, init_stddev=1.):
+def build_model(ratings, embedding_dim=3, init_stddev=1., regularization_coeff=0, gravity_coeff=0, optimizer=tf.compat.v1.train.AdamOptimizer):
     """
     Args:
         ratings: a DataFrame of the ratings
@@ -170,15 +176,22 @@ def build_model(ratings, embedding_dim=3, init_stddev=1.):
       [A_train.dense_shape[1], embedding_dim], stddev=init_stddev))
     train_loss = sparse_mean_square_error(A_train, U, V)
     test_loss = sparse_mean_square_error(A_test, U, V)
+    regularization_loss = regularization_coeff * (
+        tf.reduce_sum(U*U)/U.shape[0].value + tf.reduce_sum(V*V)/V.shape[0].value)
+    gravity_loss = gravity_coeff * gravity(U, V)    
+    total_loss = train_loss + regularization_loss + gravity_loss
     metrics = {
       'train_error': train_loss,
+      'regularization_error': regularization_loss,
+      'gravity_loss': gravity_loss,
       'test_error': test_loss
     }
     embeddings = {
       "user_id": U,
       "book_id": V
     }
-    return CFModel(embeddings, train_loss, [metrics])
+
+    return CFModel(embeddings, total_loss, [metrics], optimizer)
 
 
 DOT = 'dot'
@@ -215,6 +228,7 @@ def book_neighbors(cleaned_books, cleaned_reviews, model, title_substring, measu
     a dataframe with k entries of most relevant books
     """
     ids =  cleaned_books[cleaned_books['title'].str.contains(title_substring)].index.values
+    print(ids)
     titles = cleaned_books.loc[ids]['title'].values
     if len(titles) == 0:
         raise ValueError("Found no books with title %s" % title_substring)
@@ -229,6 +243,35 @@ def book_neighbors(cleaned_books, cleaned_reviews, model, title_substring, measu
     score_key = measure + ' score'
     df = pd.DataFrame({
       score_key: scores[0],
+      'titles': cleaned_books['title'],
+    'is_ebook': cleaned_books['is_ebook'],
+    'average_rating': cleaned_books['average_rating'],
+    'ratings_count': cleaned_books['ratings_count']
+    })
+    display.display(df.sort_values([score_key], ascending=False).head(k))
+
+def user_recommendations(cleaned_books, cleaned_reviews, model, user_id, measure=COSINE, k=6):
+    """Search for book ids that have the highest predicted scores for the given user
+    Args:
+    model: MFmodel object.
+    user_id: string - the original user_id
+    measure: a string specifying the similarity measure to be used. Can be
+      either DOT or COSINE.
+    cleaned_books: cleaned book meta data which only contains book that exist in book review dataset
+    cleaned_reviews: cleaned review data
+    Returns:
+    a dataframe with k entries of the highly recommended books
+    """
+    ids =  cleaned_reviews[cleaned_reviews['old_user_id'] == user_id].user_id.values
+    if len(ids) == 0:
+        raise ValueError("Found no users with id %s" % user_id)
+    print("The highest recommendations for user %s." % user_id)
+    scores = compute_scores(
+      model.embeddings["user_id"][ids[0]], model.embeddings["book_id"],
+      measure)
+    score_key = measure + ' score'
+    df = pd.DataFrame({
+      score_key: scores,
       'titles': cleaned_books['title'],
     'is_ebook': cleaned_books['is_ebook'],
     'average_rating': cleaned_books['average_rating'],
