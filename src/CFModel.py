@@ -41,7 +41,7 @@ def sparse_mean_square_error(sparse_ratings, user_embeddings, book_embeddings):
       tf.gather(user_embeddings, sparse_ratings.indices[:, 0]) *
       tf.gather(book_embeddings, sparse_ratings.indices[:, 1]),
       axis=1)
-    loss = tf.losses.mean_squared_error(sparse_ratings.values, predictions)
+    loss = tf.compat.v1.losses.mean_squared_error(sparse_ratings.values, predictions)
     return loss
 
 def gravity(U, V):
@@ -78,11 +78,11 @@ class CFModel(object):
             self._opt = optimizer(learning_rate)
             self._train_op = self._opt.minimize(self._loss)
             local_init_op = tf.group(
-            tf.variables_initializer(self._opt.variables()),
-            tf.local_variables_initializer())
-            self._session = tf.Session()
+            tf.compat.v1.variables_initializer(self._opt.variables()),
+            tf.compat.v1.local_variables_initializer())
+            self._session = tf.compat.v1.Session()
             with self._session.as_default():
-                self._session.run(tf.global_variables_initializer())
+                self._session.run(tf.compat.v1.global_variables_initializer())
                 self._session.run(tf.tables_initializer())
                 local_init_op.run()
                 tf.train.start_queue_runners()
@@ -170,9 +170,9 @@ def build_model(ratings, embedding_dim=3, init_stddev=1., regularization_coeff=0
     A_train = build_rating_sparse_tensor(train_ratings, users_num, books_num)
     A_test = build_rating_sparse_tensor(test_ratings, users_num, books_num)
     # Initialize the embeddings using a normal distribution.
-    U = tf.Variable(tf.random_normal(
+    U = tf.Variable(tf.random.normal(
       [A_train.dense_shape[0], embedding_dim], stddev=init_stddev))
-    V = tf.Variable(tf.random_normal(
+    V = tf.Variable(tf.random.normal(
       [A_train.dense_shape[1], embedding_dim], stddev=init_stddev))
     train_loss = sparse_mean_square_error(A_train, U, V)
     test_loss = sparse_mean_square_error(A_test, U, V)
@@ -191,7 +191,7 @@ def build_model(ratings, embedding_dim=3, init_stddev=1., regularization_coeff=0
       "book_id": V
     }
 
-    return CFModel(embeddings, total_loss, [metrics], optimizer)
+    return CFModel(embeddings, total_loss, [metrics])
 
 
 DOT = 'dot'
@@ -228,7 +228,6 @@ def book_neighbors(cleaned_books, cleaned_reviews, model, title_substring, measu
     a dataframe with k entries of most relevant books
     """
     ids =  cleaned_books[cleaned_books['title'].str.contains(title_substring)].index.values
-    print(ids)
     titles = cleaned_books.loc[ids]['title'].values
     if len(titles) == 0:
         raise ValueError("Found no books with title %s" % title_substring)
@@ -275,6 +274,9 @@ def user_recommendations(cleaned_books, cleaned_reviews, model, user_id, measure
       'titles': cleaned_books['title'],
     'is_ebook': cleaned_books['is_ebook'],
     'average_rating': cleaned_books['average_rating'],
-    'ratings_count': cleaned_books['ratings_count']
+    'ratings_count': cleaned_books['ratings_count'],
+    'text_reviews_count': cleaned_books['text_reviews_count']
     })
     display.display(df.sort_values([score_key], ascending=False).head(k))
+
+
