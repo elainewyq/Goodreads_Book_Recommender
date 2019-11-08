@@ -130,9 +130,11 @@ class CFModel(object):
                         ax.plot(iterations, v, label=k)
                     ax.set_xlim([1, num_iterations])
                     ax.set_xlabel('num_iterations')
-                    ax.set_title('train/test error over num of iterations')
+                    ax.set_title('collaborative filtering model performance over num of iterations')
                     ax.legend()
-        return results
+                plt.savefig('collaborative_filtering_model_perf.png')
+        return results 
+
 
 # Utility to split the data into training and test sets.
 def split_dataframe(df, holdout_fraction=0.1):
@@ -147,13 +149,13 @@ def split_dataframe(df, holdout_fraction=0.1):
     # test = df.sample(frac=holdout_fraction, replace=False) 
     # train = df[~df.index.isin(test.index)]
     # return train, test
-    # df.sort_values('timestamp', inplace=True)
+    df.sort_values('timestamp', inplace=True)
     sample = int(round(len(df)*holdout_fraction,0))
     test = df[-sample:]
     train = df[~df.index.isin(test.index)]
     return train, test
 
-def build_model(ratings, embedding_dim=3, init_stddev=1., regularization_coeff=0, gravity_coeff=0, optimizer=tf.compat.v1.train.AdamOptimizer):
+def build_CF_model(ratings, embedding_dim=3, init_stddev=1., regularization_coeff=0, gravity_coeff=0, optimizer=tf.compat.v1.train.AdamOptimizer):
     """
     Args:
         ratings: a DataFrame of the ratings
@@ -191,7 +193,36 @@ def build_model(ratings, embedding_dim=3, init_stddev=1., regularization_coeff=0
       "book_id": V
     }
 
-    return CFModel(embeddings, total_loss, [metrics])
+    return CFModel(embeddings, total_loss, [metrics]), test_ratings
+
+# def eval_score(test_ratings, user_embeddings, book_embeddings):
+
+#     """
+#     Args:
+#         sparse_ratings: A SparseTensor rating matrix, of dense_shape [N, M]
+#         user_embeddings: A dense Tensor U of shape [N, k] where k is the embedding
+#         dimension, such that U_i is the embedding of user i.
+#         book_embeddings: A dense Tensor V of shape [M, k] where k is the embedding
+#         dimension, such that V_j is the embedding of book j.
+#     Returns:
+#         Look at 5% of most highly predicted books for each user.
+#         Return the average actual rating of those books.
+#     """
+        
+#     test_ratings['prediction'] = np.zeros(len(test_ratings))
+#     for idx, i in test_ratings.iterrows():
+#             i['prediction'] = user_embeddings[i['user_id']] @ book_embeddings[i['book_id']]
+    
+#     # for each user
+#     g = test_ratings.groupby('user_id')
+
+#     # detect the top_5 movies as predicted by your algorithm
+#     top_5 = g.prediction.transform(
+#         lambda x: x >= x.quantile(.50)
+#     )
+
+#     # return the mean of the actual score on those
+#     return test_ratings.rating[top_5==1].mean()
 
 
 DOT = 'dot'
@@ -227,21 +258,21 @@ def book_neighbors(cleaned_books, cleaned_reviews, model, title_substring, measu
     Returns:
     a dataframe with k entries of most relevant books
     """
-    ids =  cleaned_books[cleaned_books['title'].str.contains(title_substring)].index.values
-    titles = cleaned_books.loc[ids]['title'].values
+    ids =  cleaned_books[cleaned_books['title'].str.contains(title_substring)].book_id.values
+    titles = cleaned_books[cleaned_books.book_id.isin(ids)]['title'].values
     if len(titles) == 0:
-        raise ValueError("Found no books with title %s" % title_substring)
+        raise ValueError("Found no books with title %s" % title_substring) #update to print() and recommend popular items
     print("Nearest neighbors of : %s." % titles[0])
     if len(titles) > 1:
         print("[Found more than one matching book. Other candidates: {}]".format(
         ", ".join(titles[1:])))
-    book_id = cleaned_reviews[cleaned_reviews.old_book_id == ids[0]].book_id
+    book_id = ids[0]
     scores = compute_scores(
       model.embeddings["book_id"][book_id], model.embeddings["book_id"],
       measure)
     score_key = measure + ' score'
     df = pd.DataFrame({
-      score_key: scores[0],
+      score_key: scores,
       'titles': cleaned_books['title'],
     'is_ebook': cleaned_books['is_ebook'],
     'average_rating': cleaned_books['average_rating'],
@@ -277,6 +308,6 @@ def user_recommendations(cleaned_books, cleaned_reviews, model, user_id, measure
     'ratings_count': cleaned_books['ratings_count'],
     'text_reviews_count': cleaned_books['text_reviews_count']
     })
-    display.display(df.sort_values([score_key], ascending=False).head(k))
-
+    # display.display(df.sort_values([score_key], ascending=False).head(k))
+    return df
 
