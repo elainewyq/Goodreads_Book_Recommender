@@ -260,10 +260,10 @@ def convert_timestamp(x):
     return datetime.strptime(x_new, '%b %d %H:%M:%S %Y')
 
 
-def read_tables(data_dir):
+def read_tables(data_dir, reviews_filename, books_filename):
 
     #load review data
-    reviews_df = read_reviews(os.path.join(data_dir, 'goodreads_reviews_mystery_thriller_crime.json.gz'))
+    reviews_df = read_reviews(os.path.join(data_dir, reviews_filename))
     cleaned_reviews = clean_reviews(reviews_df)
     #delete users that only have one rating in review dataset
     mask = cleaned_reviews.groupby('user_id').count()['rating'] > 1
@@ -276,7 +276,7 @@ def read_tables(data_dir):
     book_in_reviews = cleaned_reviews2.book_id.unique()
 
     #load book meta data
-    books_df = read_books(os.path.join(data_dir, 'goodreads_books_mystery_thriller_crime.json.gz'), head=False)
+    books_df = read_books(os.path.join(data_dir, books_filename), head=False)
     cleaned_books = clean_books(books_df)
     book_ids = cleaned_books.book_id.unique() #we deleted all non-english books in book meta data when clean book data
 
@@ -288,4 +288,4 @@ def read_tables(data_dir):
     # remap the book_id and user_id in review table for matrix factorization
     # remap the book_id in book table to make it consistent with review table
 
-    return book_map_id(cleaned_books1), review_map_id(cleaned_reviews3)
+    return review_map_id(cleaned_reviews3), book_map_id(cleaned_books1)
