@@ -267,7 +267,7 @@ def compute_scores(query_embedding, item_embeddings, measure=COSINE):
     scores = u.dot(V.T)
     return scores
 
-def book_neighbors(cleaned_books, cleaned_reviews, model, title_substring, measure=COSINE, k=6):
+def book_neighbors(cleaned_books, cleaned_reviews, model, book_id, measure=COSINE, k=6):
     """Search for book ids that match the given substring.
     Args:
     model: MFmodel object.
@@ -279,27 +279,28 @@ def book_neighbors(cleaned_books, cleaned_reviews, model, title_substring, measu
     Returns:
     a dataframe with k entries of most relevant books
     """
-    ids =  cleaned_books[cleaned_books['title'].str.contains(title_substring)].book_id.values
-    titles = cleaned_books[cleaned_books.book_id.isin(ids)]['title'].values
+    titles = cleaned_books[cleaned_books.book_id == book_id]['title'].values
     if len(titles) == 0:
         raise ValueError("Found no books with title %s" % title_substring) #update to print() and recommend popular items
     print("Nearest neighbors of : %s." % titles[0])
     if len(titles) > 1:
         print("[Found more than one matching book. Other candidates: {}]".format(
         ", ".join(titles[1:])))
-    book_id = ids[0]
+ 
     scores = compute_scores(
       model.embeddings["book_id"][book_id], model.embeddings["book_id"],
       measure)
     score_key = measure + ' score'
     df = pd.DataFrame({
       score_key: scores,
+      'book_id': cleaned_books['book_id'],
       'titles': cleaned_books['title'],
     'is_ebook': cleaned_books['is_ebook'],
     'average_rating': cleaned_books['average_rating'],
     'ratings_count': cleaned_books['ratings_count']
     })
-    display.display(df.sort_values([score_key], ascending=False).head(k))
+    # display.display(df.sort_values([score_key], ascending=False).head(k))
+    return df
 
 def user_recommendations(cleaned_books, cleaned_reviews, model, user_id, measure=COSINE, k=6):
     """Search for book ids that have the highest predicted scores for the given user
