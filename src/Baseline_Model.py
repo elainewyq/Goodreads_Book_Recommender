@@ -20,12 +20,14 @@ def split_dataframe(df, holdout_fraction=0.1):
     return train, test
 
 
-def mse(rating_df):
+def get_error(rating_df):
     """Calculate root mean squared error.
     """
     sqerror = abs(rating_df['rating'] - rating_df['prediction']) ** 2  # squared error array
-    mse = sqerror.sum() / len(rating_df)                 # mean squared error
-    return mse   
+    mse_error = sqerror.sum() / len(rating_df)                 # mean squared error
+    rmse_error = np.sqrt(mse_error)
+    mae_error = abs(rating_df['rating'] - rating_df['prediction']).sum()/len(rating_df) 
+    return mse_error, rmse_error, mae_error
 
 def compute_score(test_reviews):
     """Look at 5% of most highly predicted books for each user.
@@ -79,16 +81,18 @@ class Baseline():
 
 def build_baseline_model(rating_df):
     train_data, test_data = split_dataframe(rating_df)
+    print('train_data mean rating: %.5f'%train_data.rating.mean())
     baseline_model = Baseline()
     baseline_model.train(train_data)
     train_reviews = baseline_model.predict_all(train_data)
-    train_mse = mse(train_reviews)
+    train_mse_error, train_rmse_error, train_mae_error = get_error(train_reviews)
 
     test_reviews = baseline_model.predict_all(test_data)
-    test_mse = mse(test_reviews)
+    test_mse_error, test_rmse_error, test_mae_error = get_error(test_reviews)
 
     evaluation_score = compute_score(test_reviews)
 
-    print('train mse: %.5f \n test_mse: %.5f \n evaluation_score: %.5f'%(train_mse, test_mse, evaluation_score))
-    return train_mse, test_mse, evaluation_score
+    print('train mse: %.5f \n test_mse: %.5f, test_rmse: %.5f, test_mae: %.5f, \n evaluation_score: %.5f'%(
+        train_mse_error, test_mse_error, test_rmse_error, test_mae_error, evaluation_score))
+    return train_mse_error, test_mse_error, test_rmse_error, test_mae_error, evaluation_score
 
