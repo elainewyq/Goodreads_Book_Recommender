@@ -24,7 +24,7 @@ def build_rating_sparse_tensor(rating_df, users_num, books_num):
 # only gather the embeddings of the observed pairs and compute the errors 
 # rather than compute the full prediction matrix to save computation power
 
-def sparse_mean_square_error(sparse_ratings, user_embeddings, book_embeddings):
+def get_errors(sparse_ratings, user_embeddings, book_embeddings):
 
     """
     Args:
@@ -41,8 +41,20 @@ def sparse_mean_square_error(sparse_ratings, user_embeddings, book_embeddings):
       tf.gather(user_embeddings, sparse_ratings.indices[:, 0]) *
       tf.gather(book_embeddings, sparse_ratings.indices[:, 1]),
       axis=1)
-    loss = tf.compat.v1.losses.mean_squared_error(sparse_ratings.values, predictions)
-    return loss
+    mse_loss = tf.compat.v1.losses.mean_squared_error(sparse_ratings.values, predictions)
+    rmse_loss = tf.math.sqrt(mse_loss)
+    mae_loss = tf.metrics.mean_absolute_error(tf.cast(sparse_ratings.values, tf.float32), predictions)
+    return mse_loss, rmse_loss, mae_loss
+
+def precision_recall_at_k(sparse_ratings, user_embeddings, book_embeddings, k, min_rating):
+    predictions = tf.reduce_sum(
+      tf.gather(user_embeddings, sparse_ratings.indices[:, 0]) *
+      tf.gather(book_embeddings, sparse_ratings.indices[:, 1]),
+      axis=1)
+    
+    precision = tf.compat.v1.metrics.precision_at_k(sparse_ratings.values, predictions, k)
+    recall = tf.compat.v1.metrics.recall_at_k(sparse_ratings.values, predictions, k)
+    return precision, recall
 
 def gravity(U, V):
   """Creates a gravity loss given two embedding matrices."""
@@ -109,11 +121,13 @@ class CFModel(object):
                 _, results = self._session.run((self._train_op, metrics))
                 if (i % 1 == 0) or i == num_iterations:
                     print("\r iteration %d: " % i + ", ".join(
-                    ["%s=%f" % (k, v) for r in results for k, v in r.items()]),
+                    ["%s=%s" % (k, v) for r in results for k, v in r.items()]),
                     end='')
                     iterations.append(i)
                     for metric_val, result in zip(metrics_vals, results):
                         for k, v in result.items():
+                            if k == 'test_mae_loss':
+                                v = v[0]
                             metric_val[k].append(v)
             
             for k, v in self._embedding_vars.items():
@@ -130,7 +144,7 @@ class CFModel(object):
                         ax.plot(iterations, v, label=k)
                     ax.set_xlim([1, num_iterations])
                     ax.set_xlabel('num_iterations')
-                    ax.set_title('collaborative filtering model performance over num of iterations')
+                    ax.set_title('collaborative filtering model performance - matrix factorization')
                     ax.legend()
                 plt.savefig('collaborative_filtering_model_perf.png')
         return results 
@@ -155,7 +169,9 @@ def split_dataframe(df, holdout_fraction=0.1):
     train = df[~df.index.isin(test.index)]
     return train, test
 
-def build_CF_model(ratings, embedding_dim=3, init_stddev=1., regularization_coeff=0, gravity_coeff=0, optimizer=tf.compat.v1.train.AdamOptimizer):
+def build_CF_model(ratings, 
+    embedding_dim=3, init_stddev=1., regularization_coeff=0, 
+    gravity_coeff=0, optimizer=tf.compat.v1.train.AdamOptimizer):
     """
     Args:
         ratings: a DataFrame of the ratings
@@ -168,6 +184,7 @@ def build_CF_model(ratings, embedding_dim=3, init_stddev=1., regularization_coef
     books_num = len(ratings['book_id'].unique())
     # Split the ratings DataFrame into train and test.
     train_ratings, test_ratings = split_dataframe(ratings)
+    print('train_data mean rating: %.5f'%train_ratings.rating.mean())
     # SparseTensor representation of the train and test datasets.
     A_train = build_rating_sparse_tensor(train_ratings, users_num, books_num)
     A_test = build_rating_sparse_tensor(test_ratings, users_num, books_num)
@@ -176,24 +193,28 @@ def build_CF_model(ratings, embedding_dim=3, init_stddev=1., regularization_coef
       [A_train.dense_shape[0], embedding_dim], stddev=init_stddev))
     V = tf.Variable(tf.random.normal(
       [A_train.dense_shape[1], embedding_dim], stddev=init_stddev))
-    train_loss = sparse_mean_square_error(A_train, U, V)
-    test_loss = sparse_mean_square_error(A_test, U, V)
+    train_mse_loss, train_rmse_loss, train_mae_loss = get_errors(A_train, U, V)
+    test_mse_loss, test_rmse_loss, test_mae_loss = get_errors(A_test, U, V)
     regularization_loss = regularization_coeff * (
         tf.reduce_sum(U*U)/U.shape[0].value + tf.reduce_sum(V*V)/V.shape[0].value)
     gravity_loss = gravity_coeff * gravity(U, V)    
-    total_loss = train_loss + regularization_loss + gravity_loss
+    
+    train_loss = train_mse_loss + regularization_loss # + gravity_loss
+
     metrics = {
       'train_error': train_loss,
       'regularization_error': regularization_loss,
-      'gravity_loss': gravity_loss,
-      'test_error': test_loss
+      #'gravity_loss': gravity_loss,   #gravity loss pushes the prediction to zero. since the rating matrix is sparse, we don't want to predict the unknown rating with too high rates.
+      'test_mse_loss': test_mse_loss,
+      'test_rmse_loss': test_rmse_loss,
+      'test_mae_loss': test_mae_loss,
     }
     embeddings = {
       "user_id": U,
       "book_id": V
     }
 
-    return CFModel(embeddings, total_loss, [metrics]), test_ratings
+    return CFModel(embeddings, train_loss, [metrics])
 
 # def eval_score(test_ratings, user_embeddings, book_embeddings):
 
