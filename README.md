@@ -8,17 +8,15 @@ Recommendation systems have become increasingly popular to help business succeed
 The objective of this project is to build an effective book recommendation system by learning embeddings of books and users using a neural network. 
 
 ## Data
-Data from Goodreads about mystery, thriller and crime books
+Data from Goodreads about mystery/crime books
 * Raw data: 
 
-    goodreads reviews - 1,849,236 reviews with features of user id, book id, review id, rating, review text, date added; 
+    Goodreads reviews - 1,849,236 reviews with features of user id, book id, review id, rating, review text, date added; 
     
-    meta book data - 219,235 books with features of book id, title, text reviews count, country code, language code, genre, description, format, authors, publisher, ratings count, etc
+    Meta book data - 219,235 books with features of book id, title, text reviews count, country code, language code, description, format, authors, publisher, ratings count, etc
 * Cleaned data: 
 
-    reviews excluding users or books only have one rating - 1,551,765 reviews;  
-    
-    meta book data - 105,365 books
+    After cleaning up the data, there are 1,551,765 reviews generated from 2001-01-01 to 2017-11-03, involving 121,333 users and 105,365 books (excluding users or books only have one rating and non-english books)
 
 reference: https://sites.google.com/eng.ucsd.edu/ucsdbookgraph/home?authuser=0
 
@@ -26,30 +24,69 @@ reference: https://sites.google.com/eng.ucsd.edu/ucsdbookgraph/home?authuser=0
 ## Data Analysis
 
 
-Below is the data struction:
+1. Below we can find the distribution of the number of ratings per user or book, we can see the rating matrix is very sparse. more than 50% of users and books have less than 5 ratings.
 <p align="center">
-  <image src=Visualization/.png />
+  <image src=visualization/clean_dist_of_num_ratings.png />
+</p>
+<p align="center">
+  <image src=visualization/clean_pie_of_num_ratings_users.png />
+  <image src=visualization/clean_pie_of_num_ratings_books.png /> 
+</p>
+2. as for the rates, it seems people are generous giving high rates with most of the ratings are higher than 3 (rang from 1-5)
+<p align="center">
+  <image src=visualization/clean_genre_crime_rating_dist.png />
+</p>
+3. Based on the book meta data, we created a word cloud from all books' title. Also, we filtered out the top 10 popular books from review data, which confirms the popular words shown in the world cloud.
+<p align="center">
+  <image src=visualization/word_cloud_for_title.png />
+  <image src=visualization/top_10_popular_books.png /> 
+</p>
+4. below plots show that among 20k authors, more than 50% of of the authors only have one book.
+<p align="center">
+  <image src=visualization/clean_dist_of_book_cross_author.png />
 </p>
 
 ## Models
 ### Baseline model - average rating adjusted by user/book deviation
+Baseline estimate for r_xi = u + b_x + b_i
+
+u: global mean (overall mean book ratings)
+b_x: rating deviation of user x = (avg. rating of user x) - u
+b_i: rating deviation of book i = (avg. rating of book i) - u
+
 ### Collaborative filtering model - matrix factorization
 
-The algorithm applied is alternative least squares. By using embedding, we can uncover the latent features for both users and books and predict the rate by a given user to a given book. We used embeddings rather than the method of singular value decomposition. Since the dataset is very sparse, using embeddings with tensorflow sparse tensor will improve the computation efficiency. (SVD is based on algebra calculation to get the eighenvalues and eighen vectors, which is expensive)
-### Hybrid model - neural network with user_id, book_id and book_feature (e.g. author_id) embeddings
+By using embedding, we can uncover the latent features for both users and books and predict the rate by a given user to a given book. We used embeddings rather than the method of singular value decomposition (SVD). Since SVD is based on the rating matrix's eighenvalues and eighen vectors, which is computationally expensive. Using embeddings with sparse tensor and the optimation method of alternative least squares will improve the computation efficiency. 
+<p align="center">
+  <image src=visualization/CF_embedding.png />
+</p>
+
+### Neural network model - use user_id, book_id and book_feature (e.g. author_id) embeddings
 
 Process: 
 1. for a given user and book pair, create lists for his/her previously liked (rating is greater than 3) and disliked (rating is less than 4) book_ids;
-2. create book_id embeddings for the book lists and create book feature embedding (we only used author_id here) for the given book;
-3. use the embeddings created above as input layer
-4. create a certain number of hidden layers
-5. the output of the last hidden layers is the user's embedding
-6. multiple the user embedding and learned book embedding
+2. create user_embedding using a network which is feed with previously liked and disliked books embedding and the given book's content feature embedding
+3. multiple the user embedding and the given book's embedding (this book embedding matrix is shared with the network above) to predict rate.
+<p align="center">
+  <image src=visualization/NN_embedding.png />
+</p>
 
 With the implementation, we can predict the rate for this given user and book pair. 
 
+### Evaluate the models
+We use the mean squared error as measurement for the models performance. Below is a summary and the corresponding hyperparameters.
+<p align="center">
+  <image src=visualization/model_summary.png />
+</p>
+In addition to the mse, we also can evaluate the quality of the model by examining the book embedding. Below I take the book of 'The Da Vinci Code' as a example to see what the nearest neighbors are per the book embeddings. We can see the neighbors generated by the embedding includes 'Angels & Demons' which is in the same series of 'The Da Vinci Code', which confirmed that the system does learn something.
+<p align="center">
+  <image src=visualization/the_da_vinci_code.png />
+</p>
 
-
+## Future work
+* Incorporate more content features
+* More hyper parameter tuning
+* More hidden layers in neural networks
 
 ## Reference
 * Data source: Mengting Wan, Rishabh Misra, Ndapa Nakashole, Julian McAuley, "Fine-Grained Spoiler Detection from Large-Scale Review Corpora", in ACL'19 https://sites.google.com/eng.ucsd.edu/ucsdbookgraph/home?authuser=0
