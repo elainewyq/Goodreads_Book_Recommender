@@ -63,7 +63,7 @@ class CFModel(object):
             self._session = tf.compat.v1.Session()
             with self._session.as_default():
                 self._session.run(tf.compat.v1.global_variables_initializer())
-                self._session.run(tf.tables_initializer())
+                self._session.run(tf.compat.v1.tables_initializer())
                 local_init_op.run()
                 tf.train.start_queue_runners()
         print('_train_init done')
@@ -110,7 +110,95 @@ class CFModel(object):
                         ax.plot(iterations, v, label=k)
                     ax.set_xlim([1, num_iterations])
                     ax.set_xlabel('num_iterations')
-                    ax.set_title('collaborative filtering model performance over num of iterations')
+                    ax.set_title('dnn model performance over num of iterations')
                     ax.legend()
-                plt.savefig('collaborative_filtering_model_perf.png')
+                plt.savefig('DNN_model_perf.png')
         return results 
+
+DOT = 'dot'
+COSINE = 'cosine'
+def compute_scores(query_embedding, item_embeddings, measure=COSINE):
+    """Computes the scores of the candidates given a query.
+    Args:
+        query_embedding: a vector of shape [k], representing the query embedding.
+        item_embeddings: a matrix of shape [N, k], such that row i is the embedding
+        of item i.
+        measure: a string specifying the similarity measure to be used. Can be
+        either DOT or COSINE.
+    Returns:
+        scores: a vector of shape [N], such that scores[i] is the score of item i.
+    """
+    u = query_embedding
+    V = item_embeddings
+    if measure == COSINE:
+        V = V / np.linalg.norm(V, axis=1, keepdims=True)
+        u = u / np.linalg.norm(u)
+    scores = u.dot(V.T)
+    return scores
+
+def book_neighbors(cleaned_books, model, title_substring, measure=COSINE, k=6):
+    """Search for book ids that match the given substring.
+    Args:
+    model: MFmodel object.
+    title_substring: match the given substring
+    measure: a string specifying the similarity measure to be used. Can be
+      either DOT or COSINE.
+    cleaned_books: cleaned book meta data which only contains book that exist in book review dataset
+    cleaned_reviews: cleaned review data
+    Returns:
+    a dataframe with k entries of most relevant books
+    """
+    tmp_df = cleaned_books[cleaned_books['title'].str.contains(title_substring)]
+    if len(tmp_df) == 0:
+        print("Found no books with title %s" % title_substring) #update to print() and recommend popular items
+        return
+    book_id = tmp_df.sort_values('ratings_count', ascending=False).iloc[0].book_id
+    title = cleaned_books[cleaned_books.book_id == book_id].title    
+    print("Nearest neighbors of : %s." % title)
+
+ 
+    scores = compute_scores(
+      model.embeddings["book_id"][book_id], model.embeddings["book_id"],
+      measure)
+    score_key = measure + ' score'
+    df = pd.DataFrame({
+      score_key: scores,
+      'book_id': cleaned_books['book_id'],
+      'titles': cleaned_books['title'],
+    'average_rating': cleaned_books['average_rating'],
+    'ratings_count': cleaned_books['ratings_count'],
+    'link': cleaned_books['link']
+    })
+    display.display(df.sort_values([score_key], ascending=False).head(k))
+    return df
+
+def user_recommendations(cleaned_books, cleaned_reviews, model, user_id, measure=COSINE, k=6):
+    """Search for book ids that have the highest predicted scores for the given user
+    Args:
+    model: MFmodel object.
+    user_id: string - the original user_id
+    measure: a string specifying the similarity measure to be used. Can be
+      either DOT or COSINE.
+    cleaned_books: cleaned book meta data which only contains book that exist in book review dataset
+    cleaned_reviews: cleaned review data
+    Returns:
+    a dataframe with k entries of the highly recommended books
+    """
+    ids =  cleaned_reviews[cleaned_reviews['old_user_id'] == user_id].user_id.values
+    if len(ids) == 0:
+        raise ValueError("Found no users with id %s" % user_id)
+    print("The highest recommendations for user %s." % user_id)
+    scores = compute_scores(
+      model.embeddings["user_id"][ids[0]], model.embeddings["book_id"],
+      measure)
+    score_key = measure + ' score'
+    df = pd.DataFrame({
+      score_key: scores,
+      'titles': cleaned_books['title'],
+    'is_ebook': cleaned_books['is_ebook'],
+    'average_rating': cleaned_books['average_rating'],
+    'ratings_count': cleaned_books['ratings_count'],
+    'text_reviews_count': cleaned_books['text_reviews_count']
+    })
+    # display.display(df.sort_values([score_key], ascending=False).head(k))
+    return df
