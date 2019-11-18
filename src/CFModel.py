@@ -216,36 +216,6 @@ def build_CF_model(ratings,
 
     return CFModel(embeddings, train_loss, [metrics])
 
-# def eval_score(test_ratings, user_embeddings, book_embeddings):
-
-#     """
-#     Args:
-#         sparse_ratings: A SparseTensor rating matrix, of dense_shape [N, M]
-#         user_embeddings: A dense Tensor U of shape [N, k] where k is the embedding
-#         dimension, such that U_i is the embedding of user i.
-#         book_embeddings: A dense Tensor V of shape [M, k] where k is the embedding
-#         dimension, such that V_j is the embedding of book j.
-#     Returns:
-#         Look at 5% of most highly predicted books for each user.
-#         Return the average actual rating of those books.
-#     """
-        
-#     test_ratings['prediction'] = np.zeros(len(test_ratings))
-#     for idx, i in test_ratings.iterrows():
-#             i['prediction'] = user_embeddings[i['user_id']] @ book_embeddings[i['book_id']]
-    
-#     # for each user
-#     g = test_ratings.groupby('user_id')
-
-#     # detect the top_5 movies as predicted by your algorithm
-#     top_5 = g.prediction.transform(
-#         lambda x: x >= x.quantile(.50)
-#     )
-
-#     # return the mean of the actual score on those
-#     return test_ratings.rating[top_5==1].mean()
-
-
 DOT = 'dot'
 COSINE = 'cosine'
 def compute_scores(query_embedding, item_embeddings, measure=COSINE):
@@ -271,7 +241,7 @@ def book_neighbors(cleaned_books, cleaned_reviews, model, book_id, measure=COSIN
     """Search for book ids that match the given substring.
     Args:
     model: MFmodel object.
-    title_substring: a string that appears in a book name
+    book_id: book id (data type is integer)
     measure: a string specifying the similarity measure to be used. Can be
       either DOT or COSINE.
     cleaned_books: cleaned book meta data which only contains book that exist in book review dataset
