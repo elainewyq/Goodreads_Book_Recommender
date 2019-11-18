@@ -79,6 +79,8 @@ class Baseline():
 
         return reviews
 
+    
+
 def build_baseline_model(rating_df):
     train_data, test_data = split_dataframe(rating_df)
     print('train_data mean rating: %.5f'%train_data.rating.mean())
